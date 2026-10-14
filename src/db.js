@@ -1,39 +1,43 @@
-// In-memory store standing in for Postgres while we prototype.
-const bookings = new Map();
-const users = new Map([
-  ["owner@studio.test", { id: "u1", email: "owner@studio.test", password: "yoga2024", role: "owner" }],
-]);
+import pg from "pg";
 
-let nextId = 1;
-for (const name of ["Ana", "Ben", "Chloe", "Dev", "Eli", "Fay", "Gus", "Hana", "Ivo", "Jun", "Kai", "Lea"]) {
-  const id = String(nextId++);
-  bookings.set(id, { id, name, classId: "flow-am", date: "2026-11-02" });
+const DATABASE_URL = process.env.DATABASE_URL;
+
+if (!DATABASE_URL) {
+  throw new Error("Missing required environment variable: DATABASE_URL");
 }
 
-const delay = () => new Promise((r) => setTimeout(r, 20));
+const { Pool } = pg;
+const pool = new Pool({ connectionString: DATABASE_URL });
 
 export const db = {
   bookings: {
     async list() {
-      await delay();
-      return [...bookings.values()];
+      const { rows } = await pool.query(
+        "SELECT id, name, class_id AS \"classId\", date FROM bookings ORDER BY id"
+      );
+      return rows.map((row) => ({ ...row, id: String(row.id) }));
     },
     async insert(row) {
-      await delay();
-      const id = String(nextId++);
-      const saved = { id, ...row };
-      bookings.set(id, saved);
-      return saved;
+      const { rows } = await pool.query(
+        'INSERT INTO bookings (name, class_id, date) VALUES ($1, $2, $3) RETURNING id, name, class_id AS "classId", date',
+        [row.name, row.classId, row.date]
+      );
+      const saved = rows[0];
+      return { ...saved, id: String(saved.id) };
     },
     async delete(id) {
-      await delay();
-      return bookings.delete(id);
+      const { rowCount } = await pool.query("DELETE FROM bookings WHERE id = $1", [id]);
+      return rowCount > 0;
     },
   },
   users: {
     async findByEmail(email) {
-      await delay();
-      return users.get(email) ?? null;
+      const { rows } = await pool.query(
+        "SELECT id, email, password, role FROM users WHERE email = $1",
+        [email]
+      );
+      if (!rows[0]) return null;
+      return { ...rows[0], id: String(rows[0].id) };
     },
   },
 };
